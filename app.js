@@ -191,56 +191,17 @@ function formatChartDate(dateStr) {
     return `${days[date.getDay()]} ${date.getDate()}`;
 }
 
-// Create or update a forecast chart for a location
+// Create or update a forecast chart embedded in the weather card
 function renderForecastChart(location, forecast) {
     const chartId = `chart-${location.name.replace(/\s+/g, "-")}`;
-    const cardId = `forecast-${location.name.replace(/\s+/g, "-")}`;
-
-    // Create the forecast card if it doesn't exist
-    let card = document.getElementById(cardId);
-    if (!card) {
-        const grid = document.getElementById("forecastGrid");
-        card = document.createElement("div");
-        card.className = "forecast-card";
-        card.id = cardId;
-
-        const typeClass = location.type === "port" ? "type-port" : "type-terminal";
-        const typeLabel = location.type === "port" ? "Port" : "Terminal";
-
-        card.innerHTML = `
-            <div class="forecast-card-header">
-                <div style="display:flex;align-items:center;">
-                    <span class="location-name">${location.name}</span>
-                    <span class="forecast-alert-flags" id="flags-${location.name.replace(/\s+/g, "-")}"></span>
-                </div>
-                <span class="location-type ${typeClass}">${typeLabel}</span>
-            </div>
-            <div class="forecast-chart-container">
-                <canvas id="${chartId}"></canvas>
-            </div>
-        `;
-        grid.appendChild(card);
-    }
-
-    // Determine highest alert in forecast for card border
-    const maxGust = Math.max(...forecast.maxGusts);
-    const highestLevel = getWindAlertLevel(maxGust);
-    card.className = "forecast-card";
-    if (highestLevel !== "green") {
-        card.classList.add(`has-alert-${highestLevel}`);
-    }
-
-    // Update alert flags
-    const flagsEl = document.getElementById(`flags-${location.name.replace(/\s+/g, "-")}`);
-    if (highestLevel !== "green") {
-        flagsEl.innerHTML = `<span class="forecast-alert-flag ${highestLevel}">${getAlertLabel(highestLevel)}</span>`;
-    } else {
-        flagsEl.innerHTML = "";
-    }
+    // Canvas should already exist inside the weather card
+    const canvas = document.getElementById(chartId);
+    if (!canvas) return;
 
     const labels = forecast.dates.map(formatChartDate);
     const gustData = forecast.maxGusts.map(v => Math.round(v));
     const barColors = gustData.map(getBarColor);
+    const maxGust = Math.max(...forecast.maxGusts);
 
     // Chart y-axis max: at least 50, or 10 above the highest value
     const yMax = Math.max(50, Math.ceil((maxGust + 10) / 5) * 5);
@@ -268,7 +229,7 @@ function renderForecastChart(location, forecast) {
             },
             scales: {
                 x: {
-                    ticks: { color: "#8a9bb5", font: { size: 11 } },
+                    ticks: { color: "#8a9bb5", font: { size: 9 } },
                     grid: { color: "rgba(44,74,110,0.3)" }
                 },
                 y: {
@@ -276,7 +237,7 @@ function renderForecastChart(location, forecast) {
                     max: yMax,
                     ticks: {
                         color: "#8a9bb5",
-                        font: { size: 11 },
+                        font: { size: 9 },
                         stepSize: 10
                     },
                     grid: { color: "rgba(44,74,110,0.3)" }
@@ -306,16 +267,16 @@ function renderForecastChart(location, forecast) {
                             yMin: THRESHOLDS.amber,
                             yMax: THRESHOLDS.amber,
                             borderColor: "#f39c12",
-                            borderWidth: 1.5,
-                            borderDash: [6, 4],
+                            borderWidth: 1,
+                            borderDash: [4, 3],
                             label: {
                                 display: true,
-                                content: "30 Caution",
-                                position: "start",
-                                backgroundColor: "rgba(243,156,18,0.15)",
+                                content: "30",
+                                position: "end",
+                                backgroundColor: "transparent",
                                 color: "#f39c12",
-                                font: { size: 9, weight: "bold" },
-                                padding: 3
+                                font: { size: 8, weight: "bold" },
+                                padding: 2
                             }
                         },
                         orange: {
@@ -323,16 +284,16 @@ function renderForecastChart(location, forecast) {
                             yMin: THRESHOLDS.orange,
                             yMax: THRESHOLDS.orange,
                             borderColor: "#e67e22",
-                            borderWidth: 1.5,
-                            borderDash: [6, 4],
+                            borderWidth: 1,
+                            borderDash: [4, 3],
                             label: {
                                 display: true,
-                                content: "35 Warning",
-                                position: "start",
-                                backgroundColor: "rgba(230,126,34,0.15)",
+                                content: "35",
+                                position: "end",
+                                backgroundColor: "transparent",
                                 color: "#e67e22",
-                                font: { size: 9, weight: "bold" },
-                                padding: 3
+                                font: { size: 8, weight: "bold" },
+                                padding: 2
                             }
                         },
                         red: {
@@ -340,16 +301,16 @@ function renderForecastChart(location, forecast) {
                             yMin: THRESHOLDS.red,
                             yMax: THRESHOLDS.red,
                             borderColor: "#e74c3c",
-                            borderWidth: 1.5,
-                            borderDash: [6, 4],
+                            borderWidth: 1,
+                            borderDash: [4, 3],
                             label: {
                                 display: true,
-                                content: "40 Severe",
-                                position: "start",
-                                backgroundColor: "rgba(231,76,60,0.15)",
+                                content: "40",
+                                position: "end",
+                                backgroundColor: "transparent",
                                 color: "#e74c3c",
-                                font: { size: 9, weight: "bold" },
-                                padding: 3
+                                font: { size: 8, weight: "bold" },
+                                padding: 2
                             }
                         }
                     }
@@ -358,12 +319,11 @@ function renderForecastChart(location, forecast) {
         }
     };
 
-    // Destroy existing chart and create new one, or create fresh
+    // Destroy existing chart and create new one
     if (chartInstances[chartId]) {
         chartInstances[chartId].destroy();
     }
-    const ctx = document.getElementById(chartId).getContext("2d");
-    chartInstances[chartId] = new Chart(ctx, chartConfig);
+    chartInstances[chartId] = new Chart(canvas.getContext("2d"), chartConfig);
 }
 
 // Get card ID for a location
@@ -444,6 +404,12 @@ function buildCardContent(location, weather, isStale, staleTime) {
             </div>
             <span class="visibility-label">${visDesc}</span>
         </div>
+        <div class="forecast-section">
+            <div class="forecast-section-label">7-Day Max Gusts</div>
+            <div class="inline-chart-container">
+                <canvas id="chart-${location.name.replace(/\s+/g, "-")}"></canvas>
+            </div>
+        </div>
     `
     };
 }
@@ -504,14 +470,27 @@ function createCardShell(location) {
             </div>
             <span class="visibility-label">Loading...</span>
         </div>
+        <div class="forecast-section">
+            <div class="forecast-section-label">7-Day Max Gusts</div>
+            <div class="inline-chart-container">
+                <canvas id="chart-${location.name.replace(/\s+/g, "-")}"></canvas>
+            </div>
+        </div>
     `;
     return card;
 }
 
 // Update a card in-place with a fade transition
-function updateCard(location, weather, error, isStale, staleTime) {
+function updateCard(location, weather, error, isStale, staleTime, onComplete) {
     const card = document.getElementById(getCardId(location));
     if (!card) return;
+
+    // Destroy existing chart before replacing innerHTML
+    const chartId = `chart-${location.name.replace(/\s+/g, "-")}`;
+    if (chartInstances[chartId]) {
+        chartInstances[chartId].destroy();
+        delete chartInstances[chartId];
+    }
 
     // Fade out
     card.classList.add("updating");
@@ -537,6 +516,9 @@ function updateCard(location, weather, error, isStale, staleTime) {
         // Fade back in
         card.classList.add("updated");
         card.classList.remove("updating");
+
+        // Render chart after DOM is updated
+        if (onComplete) onComplete();
 
         setTimeout(() => {
             card.classList.remove("updated");
@@ -650,24 +632,20 @@ async function loadAllWeather() {
                 weather: weather,
                 fetchedAt: new Date()
             };
-            updateCard(location, weather, null, false, null);
+            const forecast = weather.forecast;
+            updateCard(location, weather, null, false, null, () => {
+                if (forecast) renderForecastChart(location, forecast);
+            });
             allResults.push({ location, weather });
-
-            // Render forecast chart
-            if (weather.forecast) {
-                renderForecastChart(location, weather.forecast);
-            }
         } catch (err) {
             // Failed — fall back to cached data if available
             const cached = weatherCache[cacheKey];
             if (cached) {
-                updateCard(location, cached.weather, null, true, cached.fetchedAt);
+                const cachedForecast = cached.weather.forecast;
+                updateCard(location, cached.weather, null, true, cached.fetchedAt, () => {
+                    if (cachedForecast) renderForecastChart(location, cachedForecast);
+                });
                 allResults.push({ location, weather: cached.weather });
-
-                // Still render forecast from cache
-                if (cached.weather.forecast) {
-                    renderForecastChart(location, cached.weather.forecast);
-                }
             } else {
                 // No cache, show error (first load failure)
                 updateCard(location, null, err.message, false, null);
