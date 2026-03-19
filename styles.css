@@ -311,6 +311,72 @@ main {
 }
 
 
+/* Forecast Section */
+.forecast-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 16px;
+}
+
+.forecast-card {
+    background: #1a2a3a;
+    border-radius: 10px;
+    padding: 18px;
+    border: 1px solid #2c4a6e;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.forecast-card:hover {
+    border-color: #3a6a9e;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.forecast-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.forecast-card-header .location-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.forecast-card-header .location-type {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+}
+
+.forecast-chart-container {
+    position: relative;
+    height: 200px;
+    width: 100%;
+}
+
+.forecast-alert-flag {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 8px;
+}
+
+.forecast-alert-flag.amber { background: rgba(243,156,18,0.2); color: #f39c12; }
+.forecast-alert-flag.orange { background: rgba(230,126,34,0.2); color: #e67e22; }
+.forecast-alert-flag.red { background: rgba(231,76,60,0.2); color: #e74c3c; }
+
+.forecast-card.has-alert-amber { border-color: #f39c12; box-shadow: 0 0 8px rgba(243,156,18,0.15); }
+.forecast-card.has-alert-orange { border-color: #e67e22; box-shadow: 0 0 8px rgba(230,126,34,0.2); }
+.forecast-card.has-alert-red { border-color: #e74c3c; box-shadow: 0 0 10px rgba(231,76,60,0.25); }
+
 /* Alert Settings */
 .alert-settings {
     max-width: 1400px;
@@ -379,6 +445,10 @@ footer a:hover {
     }
 
     .card-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .forecast-grid {
         grid-template-columns: 1fr;
     }
 

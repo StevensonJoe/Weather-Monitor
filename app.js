@@ -146,9 +146,9 @@ function timeAgo(date) {
     return `${diffHrs} hours ago`;
 }
 
-// Fetch weather data for a single location from Open-Meteo
+// Fetch weather data for a single location from Open-Meteo (current + 7-day forecast in one call)
 async function fetchWeather(location) {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&wind_speed_unit=mph&timezone=Europe%2FLondon`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&daily=wind_gusts_10m_max,wind_speed_10m_max&wind_speed_unit=mph&timezone=Europe%2FLondon&forecast_days=7`;
 
     const response = await fetch(url);
     if (!response.ok) {
@@ -157,14 +157,213 @@ async function fetchWeather(location) {
 
     const data = await response.json();
     const current = data.current;
+    const daily = data.daily;
 
     return {
         windSpeed: Math.round(current.wind_speed_10m),
         windGust: Math.round(current.wind_gusts_10m),
         windDirection: current.wind_direction_10m,
-        visibility: current.visibility, // metres
-        time: current.time
+        visibility: current.visibility,
+        time: current.time,
+        forecast: {
+            dates: daily.time,
+            maxGusts: daily.wind_gusts_10m_max,
+            maxWindSpeed: daily.wind_speed_10m_max
+        }
     };
+}
+
+// Store chart instances so we can update them without recreating
+const chartInstances = {};
+
+// Get bar color based on gust value
+function getBarColor(value) {
+    if (value >= THRESHOLDS.red) return "#e74c3c";
+    if (value >= THRESHOLDS.orange) return "#e67e22";
+    if (value >= THRESHOLDS.amber) return "#f39c12";
+    return "#5dade2";
+}
+
+// Format date for chart labels (e.g. "Mon 20")
+function formatChartDate(dateStr) {
+    const date = new Date(dateStr + "T00:00:00");
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return `${days[date.getDay()]} ${date.getDate()}`;
+}
+
+// Create or update a forecast chart for a location
+function renderForecastChart(location, forecast) {
+    const chartId = `chart-${location.name.replace(/\s+/g, "-")}`;
+    const cardId = `forecast-${location.name.replace(/\s+/g, "-")}`;
+
+    // Create the forecast card if it doesn't exist
+    let card = document.getElementById(cardId);
+    if (!card) {
+        const grid = document.getElementById("forecastGrid");
+        card = document.createElement("div");
+        card.className = "forecast-card";
+        card.id = cardId;
+
+        const typeClass = location.type === "port" ? "type-port" : "type-terminal";
+        const typeLabel = location.type === "port" ? "Port" : "Terminal";
+
+        card.innerHTML = `
+            <div class="forecast-card-header">
+                <div style="display:flex;align-items:center;">
+                    <span class="location-name">${location.name}</span>
+                    <span class="forecast-alert-flags" id="flags-${location.name.replace(/\s+/g, "-")}"></span>
+                </div>
+                <span class="location-type ${typeClass}">${typeLabel}</span>
+            </div>
+            <div class="forecast-chart-container">
+                <canvas id="${chartId}"></canvas>
+            </div>
+        `;
+        grid.appendChild(card);
+    }
+
+    // Determine highest alert in forecast for card border
+    const maxGust = Math.max(...forecast.maxGusts);
+    const highestLevel = getWindAlertLevel(maxGust);
+    card.className = "forecast-card";
+    if (highestLevel !== "green") {
+        card.classList.add(`has-alert-${highestLevel}`);
+    }
+
+    // Update alert flags
+    const flagsEl = document.getElementById(`flags-${location.name.replace(/\s+/g, "-")}`);
+    if (highestLevel !== "green") {
+        flagsEl.innerHTML = `<span class="forecast-alert-flag ${highestLevel}">${getAlertLabel(highestLevel)}</span>`;
+    } else {
+        flagsEl.innerHTML = "";
+    }
+
+    const labels = forecast.dates.map(formatChartDate);
+    const gustData = forecast.maxGusts.map(v => Math.round(v));
+    const barColors = gustData.map(getBarColor);
+
+    // Chart y-axis max: at least 50, or 10 above the highest value
+    const yMax = Math.max(50, Math.ceil((maxGust + 10) / 5) * 5);
+
+    const chartConfig = {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Max Gusts (mph)",
+                data: gustData,
+                backgroundColor: barColors,
+                borderColor: barColors.map(c => c),
+                borderWidth: 1,
+                borderRadius: 4,
+                barPercentage: 0.7
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: "index"
+            },
+            scales: {
+                x: {
+                    ticks: { color: "#8a9bb5", font: { size: 11 } },
+                    grid: { color: "rgba(44,74,110,0.3)" }
+                },
+                y: {
+                    min: 0,
+                    max: yMax,
+                    ticks: {
+                        color: "#8a9bb5",
+                        font: { size: 11 },
+                        stepSize: 10
+                    },
+                    grid: { color: "rgba(44,74,110,0.3)" }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: "#1a2a3a",
+                    titleColor: "#fff",
+                    bodyColor: "#e0e6ed",
+                    borderColor: "#2c4a6e",
+                    borderWidth: 1,
+                    callbacks: {
+                        label: function(ctx) {
+                            const val = ctx.parsed.y;
+                            const level = getWindAlertLevel(val);
+                            const suffix = level !== "green" ? ` - ${getAlertLabel(level)}` : "";
+                            return `Max Gust: ${val} mph${suffix}`;
+                        }
+                    }
+                },
+                annotation: {
+                    annotations: {
+                        amber: {
+                            type: "line",
+                            yMin: THRESHOLDS.amber,
+                            yMax: THRESHOLDS.amber,
+                            borderColor: "#f39c12",
+                            borderWidth: 1.5,
+                            borderDash: [6, 4],
+                            label: {
+                                display: true,
+                                content: "30 Caution",
+                                position: "start",
+                                backgroundColor: "rgba(243,156,18,0.15)",
+                                color: "#f39c12",
+                                font: { size: 9, weight: "bold" },
+                                padding: 3
+                            }
+                        },
+                        orange: {
+                            type: "line",
+                            yMin: THRESHOLDS.orange,
+                            yMax: THRESHOLDS.orange,
+                            borderColor: "#e67e22",
+                            borderWidth: 1.5,
+                            borderDash: [6, 4],
+                            label: {
+                                display: true,
+                                content: "35 Warning",
+                                position: "start",
+                                backgroundColor: "rgba(230,126,34,0.15)",
+                                color: "#e67e22",
+                                font: { size: 9, weight: "bold" },
+                                padding: 3
+                            }
+                        },
+                        red: {
+                            type: "line",
+                            yMin: THRESHOLDS.red,
+                            yMax: THRESHOLDS.red,
+                            borderColor: "#e74c3c",
+                            borderWidth: 1.5,
+                            borderDash: [6, 4],
+                            label: {
+                                display: true,
+                                content: "40 Severe",
+                                position: "start",
+                                backgroundColor: "rgba(231,76,60,0.15)",
+                                color: "#e74c3c",
+                                font: { size: 9, weight: "bold" },
+                                padding: 3
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    // Destroy existing chart and create new one, or create fresh
+    if (chartInstances[chartId]) {
+        chartInstances[chartId].destroy();
+    }
+    const ctx = document.getElementById(chartId).getContext("2d");
+    chartInstances[chartId] = new Chart(ctx, chartConfig);
 }
 
 // Get card ID for a location
@@ -453,12 +652,22 @@ async function loadAllWeather() {
             };
             updateCard(location, weather, null, false, null);
             allResults.push({ location, weather });
+
+            // Render forecast chart
+            if (weather.forecast) {
+                renderForecastChart(location, weather.forecast);
+            }
         } catch (err) {
             // Failed — fall back to cached data if available
             const cached = weatherCache[cacheKey];
             if (cached) {
                 updateCard(location, cached.weather, null, true, cached.fetchedAt);
                 allResults.push({ location, weather: cached.weather });
+
+                // Still render forecast from cache
+                if (cached.weather.forecast) {
+                    renderForecastChart(location, cached.weather.forecast);
+                }
             } else {
                 // No cache, show error (first load failure)
                 updateCard(location, null, err.message, false, null);
