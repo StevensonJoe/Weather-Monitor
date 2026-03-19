@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Port & Terminal Weather Monitor</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>UK Port & Terminal Weather Monitor</h1>
+            <p class="subtitle">Real-time wind, gust &amp; visibility monitoring</p>
+        </div>
+        <div class="header-controls">
+            <span class="last-updated" id="lastUpdated">Loading...</span>
+            <button id="refreshBtn" class="btn-refresh" title="Refresh data">&#x21bb; Refresh</button>
+        </div>
+    </header>
+
+    <div id="alertBanner" class="alert-banner hidden"></div>
+
+    <main>
+        <section class="section">
+            <h2 class="section-title">Container Ports</h2>
+            <div class="card-grid" id="portsGrid"></div>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Inland Rail Terminals</h2>
+            <div class="card-grid" id="terminalsGrid"></div>
+        </section>
+    </main>
+
+    <div id="alertSettings" class="alert-settings">
+        <h3>Wind Speed Alerts (mph)</h3>
+        <div class="threshold-indicators">
+            <span class="threshold-chip amber">&#x26a0; 30 mph - Caution</span>
+            <span class="threshold-chip orange">&#x26a0; 35 mph - Warning</span>
+            <span class="threshold-chip red">&#x26a0; 40 mph - Severe</span>
+        </div>
+    </div>
+
+    <footer>
+        <p>Data provided by <a href="https://open-meteo.com/" target="_blank">Open-Meteo API</a> &bull; Updates every 2 minutes</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
