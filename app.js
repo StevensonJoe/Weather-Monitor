@@ -55,10 +55,13 @@ const THRESHOLDS = {
     red: 40
 };
 
-// Auto-refresh interval (2 minutes)
-const REFRESH_INTERVAL = 2 * 60 * 1000;
+// Auto-refresh interval (5 minutes — keeps within 10k API calls/day over 24hrs)
+const REFRESH_INTERVAL = 5 * 60 * 1000;
 
 let refreshTimer = null;
+
+// Cache of last successful weather data per location
+const weatherCache = {};
 
 // Convert km/h to mph
 function kmhToMph(kmh) {
@@ -125,6 +128,24 @@ function getAlertLabel(level) {
     }
 }
 
+// Format a timestamp for display
+function formatTime(date) {
+    return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Calculate how long ago a timestamp was
+function timeAgo(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return "just now";
+    if (diffMins === 1) return "1 min ago";
+    if (diffMins < 60) return `${diffMins} mins ago`;
+    const diffHrs = Math.floor(diffMins / 60);
+    if (diffHrs === 1) return "1 hour ago";
+    return `${diffHrs} hours ago`;
+}
+
 // Fetch weather data for a single location from Open-Meteo
 async function fetchWeather(location) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&wind_speed_unit=mph&timezone=Europe%2FLondon`;
@@ -151,8 +172,13 @@ function getCardId(location) {
     return `card-${location.name.replace(/\s+/g, "-")}`;
 }
 
+// Get cache key for a location
+function getCacheKey(location) {
+    return location.name;
+}
+
 // Build the inner HTML for a weather card
-function buildCardContent(location, weather) {
+function buildCardContent(location, weather, isStale, staleTime) {
     const windLevel = getWindAlertLevel(weather.windSpeed);
     const gustLevel = getWindAlertLevel(weather.windGust);
     const highestLevel = getHighestAlert(windLevel, gustLevel);
@@ -176,10 +202,19 @@ function buildCardContent(location, weather) {
         alertBadge = `<span class="alert-badge ${highestLevel}">${getAlertLabel(highestLevel)}</span>`;
     }
 
+    // Stale data indicator
+    let staleIndicator = "";
+    if (isStale && staleTime) {
+        const ago = timeAgo(staleTime);
+        const timeStr = formatTime(staleTime);
+        staleIndicator = `<span class="stale-indicator" title="Data may be outdated. Last successful update: ${timeStr} (${ago}). API rate limit was reached.">&#x25cf;</span>`;
+    }
+
     return {
         highestLevel,
         html: `
         ${alertBadge}
+        ${staleIndicator}
         <div class="card-header">
             <div>
                 <div class="location-name">${location.name}</div>
@@ -275,7 +310,7 @@ function createCardShell(location) {
 }
 
 // Update a card in-place with a fade transition
-function updateCard(location, weather, error) {
+function updateCard(location, weather, error, isStale, staleTime) {
     const card = document.getElementById(getCardId(location));
     if (!card) return;
 
@@ -284,11 +319,14 @@ function updateCard(location, weather, error) {
 
     setTimeout(() => {
         if (weather) {
-            const { highestLevel, html } = buildCardContent(location, weather);
+            const { highestLevel, html } = buildCardContent(location, weather, isStale, staleTime);
             card.innerHTML = html;
 
             // Update card alert class
             card.className = "weather-card";
+            if (isStale) {
+                card.classList.add("stale");
+            }
             if (highestLevel !== "green") {
                 card.classList.add(`alert-${highestLevel}`);
             }
@@ -363,7 +401,6 @@ function updateAlertBanner(allResults) {
         `).join("")}
     `;
 
-    // Play notification sound for new severe alerts
     if (alerts.some(a => a.level === "red")) {
         document.title = "\u26a0\ufe0f SEVERE ALERT - UK Port Weather Monitor";
     } else if (alerts.some(a => a.level === "orange")) {
@@ -388,6 +425,11 @@ function initializeCards() {
     }
 }
 
+// Stagger API calls to avoid hitting per-second rate limits
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Load all weather data (updates cards in-place after first load)
 async function loadAllWeather() {
     if (!isInitialized) {
@@ -398,44 +440,48 @@ async function loadAllWeather() {
     const allLocations = [...LOCATIONS.ports, ...LOCATIONS.terminals];
     const allResults = [];
 
-    // Fetch all in parallel
-    const promises = allLocations.map(async (location) => {
+    // Stagger requests slightly (500ms apart) to avoid per-second rate limits
+    for (const location of allLocations) {
+        const cacheKey = getCacheKey(location);
+
         try {
             const weather = await fetchWeather(location);
-            return { location, weather, error: null };
-        } catch (err) {
-            return { location, weather: null, error: err.message };
-        }
-    });
-
-    const results = await Promise.all(promises);
-
-    for (const result of results) {
-        const { location, weather, error } = result;
-        updateCard(location, weather, error);
-        if (weather) {
+            // Success — update cache
+            weatherCache[cacheKey] = {
+                weather: weather,
+                fetchedAt: new Date()
+            };
+            updateCard(location, weather, null, false, null);
             allResults.push({ location, weather });
+        } catch (err) {
+            // Failed — fall back to cached data if available
+            const cached = weatherCache[cacheKey];
+            if (cached) {
+                updateCard(location, cached.weather, null, true, cached.fetchedAt);
+                allResults.push({ location, weather: cached.weather });
+            } else {
+                // No cache, show error (first load failure)
+                updateCard(location, null, err.message, false, null);
+            }
         }
+
+        // Small delay between requests to be kind to the API
+        await delay(500);
     }
 
-    // Update alert banner
+    // Update alert banner (uses whatever data we have, fresh or cached)
     updateAlertBanner(allResults);
 
     // Update timestamp
     const now = new Date();
     document.getElementById("lastUpdated").textContent =
-        `Last updated: ${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+        `Last updated: ${formatTime(now)}`;
 }
 
 // Initialize
 document.addEventListener("DOMContentLoaded", () => {
     loadAllWeather();
 
-    // Auto-refresh every 10 minutes
+    // Auto-refresh every 5 minutes
     refreshTimer = setInterval(loadAllWeather, REFRESH_INTERVAL);
-
-    // Manual refresh button
-    document.getElementById("refreshBtn").addEventListener("click", () => {
-        loadAllWeather();
-    });
 });
