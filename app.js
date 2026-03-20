@@ -199,6 +199,109 @@ async function fetchWeather(location) {
     return result;
 }
 
+// ===== MAP =====
+let weatherMap = null;
+const mapMarkers = {};
+
+// Color for alert level
+function getAlertColor(level) {
+    switch (level) {
+        case "red": return "#e74c3c";
+        case "orange": return "#e67e22";
+        case "amber": return "#f39c12";
+        default: return "#2ecc71";
+    }
+}
+
+// Initialize the Leaflet map
+function initMap() {
+    weatherMap = L.map("weatherMap", {
+        zoomControl: true,
+        scrollWheelZoom: true
+    }).setView([52.5, -0.5], 7);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 15
+    }).addTo(weatherMap);
+
+    // Create initial markers for all locations
+    const allLocations = [...LOCATIONS.ports, ...LOCATIONS.terminals];
+    for (const loc of allLocations) {
+        const marker = L.circleMarker([loc.lat, loc.lon], {
+            radius: 10,
+            fillColor: "#6b8299",
+            color: "#fff",
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.85
+        }).addTo(weatherMap);
+
+        marker.bindPopup(`<div class="map-popup-title">${loc.name}</div><div style="color:#6b8299;">Loading...</div>`);
+        marker.bindTooltip(loc.name, {
+            permanent: true,
+            direction: "top",
+            offset: [0, -12],
+            className: "map-label"
+        });
+
+        mapMarkers[loc.name] = marker;
+    }
+}
+
+// Update map markers with current weather data
+function updateMapMarkers(allResults) {
+    for (const { location, weather } of allResults) {
+        const marker = mapMarkers[location.name];
+        if (!marker || !weather) continue;
+
+        const maxWind = Math.max(weather.windSpeed, weather.windGust);
+        const level = getWindAlertLevel(maxWind);
+        const color = getAlertColor(level);
+
+        // Update marker color
+        marker.setStyle({
+            fillColor: color,
+            color: "#fff",
+            radius: level === "green" ? 10 : 13
+        });
+
+        // Build popup content
+        const typeClass = location.type === "port" ? "type-port" : "type-terminal";
+        const typeLabel = location.type === "port" ? "Port" : "Terminal";
+        const visKm = metresToKm(weather.visibility);
+        const visDesc = getVisibilityDesc(weather.visibility);
+
+        let alertHtml = "";
+        if (level !== "green") {
+            alertHtml = `<div class="map-popup-alert ${level}">${getAlertLabel(level)}</div>`;
+        }
+
+        const popupHtml = `
+            <div class="map-popup-title">
+                ${location.name}
+                <span class="map-popup-type ${typeClass}">${typeLabel}</span>
+            </div>
+            <div class="map-popup-row">
+                <span class="map-popup-label">Wind:</span>
+                <span class="map-popup-value" style="color:${color}">${weather.windSpeed} mph ${getWindDirection(weather.windDirection)}</span>
+            </div>
+            <div class="map-popup-row">
+                <span class="map-popup-label">Gusts:</span>
+                <span class="map-popup-value" style="color:${color}">${weather.windGust} mph</span>
+            </div>
+            <div class="map-popup-row">
+                <span class="map-popup-label">Visibility:</span>
+                <span class="map-popup-value">${visKm >= 1 ? visKm.toFixed(1) + " km" : Math.round(weather.visibility) + " m"} (${visDesc})</span>
+            </div>
+            ${alertHtml}
+        `;
+
+        marker.setPopupContent(popupHtml);
+    }
+}
+
+// ===== CHARTS =====
 // Store chart instances so we can update them without recreating
 const chartInstances = {};
 
@@ -641,6 +744,9 @@ function initializeCards() {
         terminalsGrid.appendChild(createCardShell(loc));
     }
 
+    // Initialize the map
+    initMap();
+
     // Add summary card to ports grid
     const summaryCard = document.createElement("div");
     summaryCard.className = "weather-card summary-card";
@@ -664,8 +770,6 @@ function updateSummaryCard(allResults) {
     let worstWind = { name: "", speed: 0, gust: 0 };
     // Find worst visibility
     let worstVis = { name: "", visibility: Infinity };
-    // Collect operational hazards
-    const hazards = [];
     // Track all locations with alerts
     const windAlerts = [];
     const visIssues = [];
@@ -875,9 +979,10 @@ async function loadAllWeather() {
         await delay(500);
     }
 
-    // Update alert banner and summary card
+    // Update alert banner, summary card, and map
     updateAlertBanner(allResults);
     updateSummaryCard(allResults);
+    updateMapMarkers(allResults);
 
     // Update timestamp
     const now = new Date();
