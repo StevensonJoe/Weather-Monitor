@@ -148,7 +148,7 @@ function timeAgo(date) {
 
 // Fetch weather data for a single location from Open-Meteo (current + 7-day forecast in one call)
 async function fetchWeather(location) {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&daily=wind_gusts_10m_max,wind_speed_10m_max&wind_speed_unit=mph&timezone=Europe%2FLondon&forecast_days=7&models=ukmo_seamless`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&daily=wind_gusts_10m_max,wind_speed_10m_max&wind_speed_unit=mph&timezone=Europe%2FLondon&forecast_days=6&models=ukmo_seamless`;
 
     const response = await fetch(url);
     if (!response.ok) {
