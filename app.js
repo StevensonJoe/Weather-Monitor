@@ -604,6 +604,185 @@ function initializeCards() {
     for (const loc of LOCATIONS.terminals) {
         terminalsGrid.appendChild(createCardShell(loc));
     }
+
+    // Add summary card to ports grid
+    const summaryCard = document.createElement("div");
+    summaryCard.className = "weather-card summary-card";
+    summaryCard.id = "summaryCard";
+    summaryCard.innerHTML = `
+        <div class="card-header">
+            <div><div class="location-name">Conditions Summary</div></div>
+            <span class="location-type type-summary">OVERVIEW</span>
+        </div>
+        <div class="summary-loading">Loading data...</div>
+    `;
+    portsGrid.appendChild(summaryCard);
+}
+
+// Update the summary card with current conditions across all locations
+function updateSummaryCard(allResults) {
+    const card = document.getElementById("summaryCard");
+    if (!card || allResults.length === 0) return;
+
+    // Find worst wind
+    let worstWind = { name: "", speed: 0, gust: 0 };
+    // Find worst visibility
+    let worstVis = { name: "", visibility: Infinity };
+    // Collect operational hazards
+    const hazards = [];
+    // Track all locations with alerts
+    const windAlerts = [];
+    const visIssues = [];
+
+    for (const { location, weather } of allResults) {
+        if (!weather) continue;
+
+        // Wind
+        const maxWind = Math.max(weather.windSpeed, weather.windGust);
+        if (maxWind > worstWind.gust) {
+            worstWind = { name: location.name, speed: weather.windSpeed, gust: weather.windGust };
+        }
+        const windLevel = getWindAlertLevel(maxWind);
+        if (windLevel !== "green") {
+            windAlerts.push({ name: location.name, level: windLevel, speed: maxWind });
+        }
+
+        // Visibility
+        if (weather.visibility < worstVis.visibility) {
+            worstVis = { name: location.name, visibility: weather.visibility };
+        }
+        if (weather.visibility < 4000) {
+            visIssues.push({
+                name: location.name,
+                visibility: weather.visibility,
+                desc: getVisibilityDesc(weather.visibility)
+            });
+        }
+    }
+
+    // Build hazard items
+    const items = [];
+
+    // Overall status
+    const overallWindLevel = windAlerts.length > 0
+        ? windAlerts.reduce((worst, a) => {
+            const order = { red: 3, orange: 2, amber: 1 };
+            return (order[a.level] || 0) > (order[worst.level] || 0) ? a : worst;
+        }, windAlerts[0]).level
+        : "green";
+
+    const hasVisIssues = visIssues.length > 0;
+
+    let statusClass, statusText;
+    if (overallWindLevel === "red") {
+        statusClass = "status-red";
+        statusText = "Severe Disruption Likely";
+    } else if (overallWindLevel === "orange") {
+        statusClass = "status-orange";
+        statusText = "Potential Disruption";
+    } else if (overallWindLevel === "amber" || hasVisIssues) {
+        statusClass = "status-amber";
+        statusText = "Caution Advised";
+    } else {
+        statusClass = "status-green";
+        statusText = "All Clear";
+    }
+
+    // Worst wind
+    const worstWindLevel = getWindAlertLevel(worstWind.gust);
+    items.push(`
+        <div class="summary-item">
+            <span class="summary-icon">&#x1f4a8;</span>
+            <div class="summary-detail">
+                <div class="summary-detail-label">Highest Wind</div>
+                <div class="summary-detail-value ${getWindClass(worstWind.gust)}">${worstWind.name}: ${worstWind.gust} mph gusts</div>
+            </div>
+        </div>
+    `);
+
+    // Worst visibility
+    const worstVisDesc = getVisibilityDesc(worstVis.visibility);
+    const worstVisKm = metresToKm(worstVis.visibility);
+    const worstVisClass = getVisibilityClass(worstVis.visibility);
+    items.push(`
+        <div class="summary-item">
+            <span class="summary-icon">&#x1f32b;</span>
+            <div class="summary-detail">
+                <div class="summary-detail-label">Lowest Visibility</div>
+                <div class="summary-detail-value ${worstVisClass}">${worstVis.name}: ${worstVisKm >= 1 ? worstVisKm.toFixed(1) + " km" : Math.round(worstVis.visibility) + " m"} (${worstVisDesc})</div>
+            </div>
+        </div>
+    `);
+
+    // Fog / visibility warnings
+    if (visIssues.length > 0) {
+        const fogNames = visIssues.map(v => `${v.name} (${v.desc})`).join(", ");
+        items.push(`
+            <div class="summary-item summary-warning">
+                <span class="summary-icon">&#x26a0;</span>
+                <div class="summary-detail">
+                    <div class="summary-detail-label">Visibility Hazard</div>
+                    <div class="summary-detail-value">${fogNames}</div>
+                    <div class="summary-detail-note">May affect vessel navigation, crane ops & road transport</div>
+                </div>
+            </div>
+        `);
+    }
+
+    // Wind alerts
+    if (windAlerts.length > 0) {
+        const alertNames = windAlerts
+            .sort((a, b) => b.speed - a.speed)
+            .map(a => `${a.name} (${a.speed} mph)`)
+            .join(", ");
+        items.push(`
+            <div class="summary-item summary-warning">
+                <span class="summary-icon">&#x26a0;</span>
+                <div class="summary-detail">
+                    <div class="summary-detail-label">Wind Alert</div>
+                    <div class="summary-detail-value">${alertNames}</div>
+                    <div class="summary-detail-note">May affect crane operations, stacking & vessel berthing</div>
+                </div>
+            </div>
+        `);
+    }
+
+    // All clear messages when no issues
+    if (windAlerts.length === 0 && visIssues.length === 0) {
+        items.push(`
+            <div class="summary-item">
+                <span class="summary-icon">&#x2705;</span>
+                <div class="summary-detail">
+                    <div class="summary-detail-label">Operations</div>
+                    <div class="summary-detail-value" style="color: #2ecc71;">No weather-related disruptions expected</div>
+                </div>
+            </div>
+        `);
+    }
+
+    // Count locations with good conditions
+    const goodCount = allResults.filter(r => {
+        if (!r.weather) return false;
+        const maxW = Math.max(r.weather.windSpeed, r.weather.windGust);
+        return getWindAlertLevel(maxW) === "green" && r.weather.visibility >= 4000;
+    }).length;
+
+    card.innerHTML = `
+        <div class="card-header">
+            <div><div class="location-name">Conditions Summary</div></div>
+            <span class="location-type type-summary">OVERVIEW</span>
+        </div>
+        <div class="summary-status ${statusClass}">
+            <span class="summary-status-dot"></span>
+            ${statusText}
+        </div>
+        <div class="summary-items">
+            ${items.join("")}
+        </div>
+        <div class="summary-footer">
+            ${goodCount}/${allResults.length} locations reporting normal conditions
+        </div>
+    `;
 }
 
 // Stagger API calls to avoid hitting per-second rate limits
@@ -656,8 +835,9 @@ async function loadAllWeather() {
         await delay(500);
     }
 
-    // Update alert banner (uses whatever data we have, fresh or cached)
+    // Update alert banner and summary card
     updateAlertBanner(allResults);
+    updateSummaryCard(allResults);
 
     // Update timestamp
     const now = new Date();

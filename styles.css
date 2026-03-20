@@ -311,6 +311,133 @@ main {
 }
 
 
+/* Summary Card */
+.summary-card {
+    background: linear-gradient(135deg, #1a2a3a, #1e3248);
+}
+
+.type-summary {
+    background: #2c3e50;
+    color: #bdc3c7;
+}
+
+.summary-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin-bottom: 14px;
+}
+
+.summary-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.summary-status.status-green {
+    background: rgba(46, 204, 113, 0.12);
+    color: #2ecc71;
+}
+.summary-status.status-green .summary-status-dot { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
+
+.summary-status.status-amber {
+    background: rgba(243, 156, 18, 0.12);
+    color: #f39c12;
+}
+.summary-status.status-amber .summary-status-dot { background: #f39c12; box-shadow: 0 0 6px #f39c12; }
+
+.summary-status.status-orange {
+    background: rgba(230, 126, 34, 0.12);
+    color: #e67e22;
+}
+.summary-status.status-orange .summary-status-dot { background: #e67e22; box-shadow: 0 0 6px #e67e22; }
+
+.summary-status.status-red {
+    background: rgba(231, 76, 60, 0.12);
+    color: #e74c3c;
+    animation: pulse-status 2s ease-in-out infinite;
+}
+.summary-status.status-red .summary-status-dot { background: #e74c3c; box-shadow: 0 0 6px #e74c3c; }
+
+@keyframes pulse-status {
+    0%, 100% { background: rgba(231, 76, 60, 0.12); }
+    50% { background: rgba(231, 76, 60, 0.2); }
+}
+
+.summary-items {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.summary-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    background: rgba(15, 25, 35, 0.6);
+    border-radius: 6px;
+}
+
+.summary-item.summary-warning {
+    border-left: 3px solid #e67e22;
+}
+
+.summary-icon {
+    font-size: 1rem;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.summary-detail {
+    flex: 1;
+    min-width: 0;
+}
+
+.summary-detail-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #6b8299;
+    margin-bottom: 2px;
+}
+
+.summary-detail-value {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #e0e6ed;
+    word-wrap: break-word;
+}
+
+.summary-detail-note {
+    font-size: 0.7rem;
+    color: #6b8299;
+    font-style: italic;
+    margin-top: 3px;
+}
+
+.summary-footer {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid #243447;
+    font-size: 0.7rem;
+    color: #6b8299;
+    text-align: center;
+}
+
+.summary-loading {
+    color: #6b8299;
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 40px 20px;
+}
+
 /* Embedded Forecast Chart */
 .forecast-section {
     margin-top: 14px;
