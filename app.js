@@ -59,9 +59,23 @@ const THRESHOLDS = {
 const REFRESH_INTERVAL = 5 * 60 * 1000;
 
 let refreshTimer = null;
+let isRefreshing = false;
 
 // Cache of last successful weather data per location
 const weatherCache = {};
+
+// Escape HTML to prevent XSS from injected content
+function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// Safely convert a value to a number, returning a fallback if invalid
+function safeNumber(val, fallback) {
+    const num = Number(val);
+    return (Number.isFinite(num)) ? num : fallback;
+}
 
 // Convert km/h to mph
 function kmhToMph(kmh) {
@@ -156,21 +170,33 @@ async function fetchWeather(location) {
     }
 
     const data = await response.json();
+
+    if (!data || !data.current) {
+        throw new Error("Invalid API response: missing current data");
+    }
+
     const current = data.current;
     const daily = data.daily;
 
-    return {
-        windSpeed: Math.round(current.wind_speed_10m),
-        windGust: Math.round(current.wind_gusts_10m),
-        windDirection: current.wind_direction_10m,
-        visibility: current.visibility,
+    const result = {
+        windSpeed: Math.round(safeNumber(current.wind_speed_10m, 0)),
+        windGust: Math.round(safeNumber(current.wind_gusts_10m, 0)),
+        windDirection: safeNumber(current.wind_direction_10m, null),
+        visibility: safeNumber(current.visibility, 0),
         time: current.time,
-        forecast: {
-            dates: daily.time,
-            maxGusts: daily.wind_gusts_10m_max,
-            maxWindSpeed: daily.wind_speed_10m_max
-        }
+        forecast: null
     };
+
+    // Only include forecast if daily data is valid
+    if (daily && Array.isArray(daily.time) && daily.time.length > 0) {
+        result.forecast = {
+            dates: daily.time,
+            maxGusts: (daily.wind_gusts_10m_max || []).map(v => safeNumber(v, 0)),
+            maxWindSpeed: (daily.wind_speed_10m_max || []).map(v => safeNumber(v, 0))
+        };
+    }
+
+    return result;
 }
 
 // Store chart instances so we can update them without recreating
@@ -197,6 +223,9 @@ function renderForecastChart(location, forecast) {
     // Canvas should already exist inside the weather card
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
+
+    // Guard against empty forecast data
+    if (!forecast.dates || forecast.dates.length === 0 || !forecast.maxGusts || forecast.maxGusts.length === 0) return;
 
     const labels = forecast.dates.map(formatChartDate);
     const gustData = forecast.maxGusts.map(v => Math.round(v));
@@ -319,11 +348,18 @@ function renderForecastChart(location, forecast) {
         }
     };
 
-    // Destroy existing chart and create new one
+    // Update existing chart or create new one
     if (chartInstances[chartId]) {
-        chartInstances[chartId].destroy();
+        const chart = chartInstances[chartId];
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = gustData;
+        chart.data.datasets[0].backgroundColor = barColors;
+        chart.data.datasets[0].borderColor = barColors;
+        chart.options.scales.y.max = yMax;
+        chart.update("none"); // "none" skips animations for smoother refresh
+    } else {
+        chartInstances[chartId] = new Chart(canvas.getContext("2d"), chartConfig);
     }
-    chartInstances[chartId] = new Chart(canvas.getContext("2d"), chartConfig);
 }
 
 // Get card ID for a location
@@ -426,7 +462,7 @@ function buildErrorContent(location, error) {
             </div>
             <span class="location-type ${typeClass}">${typeLabel}</span>
         </div>
-        <div class="error-message">Unable to load weather data.<br><small>${error}</small></div>
+        <div class="error-message">Unable to load weather data.<br><small>${escapeHtml(String(error))}</small></div>
     `;
 }
 
@@ -792,6 +828,10 @@ function delay(ms) {
 
 // Load all weather data (updates cards in-place after first load)
 async function loadAllWeather() {
+    // Prevent overlapping refresh cycles
+    if (isRefreshing) return;
+    isRefreshing = true;
+
     if (!isInitialized) {
         initializeCards();
         isInitialized = true;
@@ -843,6 +883,8 @@ async function loadAllWeather() {
     const now = new Date();
     document.getElementById("lastUpdated").textContent =
         `Last updated: ${formatTime(now)}`;
+
+    isRefreshing = false;
 }
 
 // Initialize
