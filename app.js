@@ -405,7 +405,7 @@ function buildCardContent(location, weather, isStale, staleTime) {
             <span class="visibility-label">${visDesc}</span>
         </div>
         <div class="forecast-section">
-            <div class="forecast-section-label">7-Day Max Gusts</div>
+            <div class="forecast-section-label">6-Day Max Gusts</div>
             <div class="inline-chart-container">
                 <canvas id="chart-${location.name.replace(/\s+/g, "-")}"></canvas>
             </div>
@@ -471,7 +471,7 @@ function createCardShell(location) {
             <span class="visibility-label">Loading...</span>
         </div>
         <div class="forecast-section">
-            <div class="forecast-section-label">7-Day Max Gusts</div>
+            <div class="forecast-section-label">6-Day Max Gusts</div>
             <div class="inline-chart-container">
                 <canvas id="chart-${location.name.replace(/\s+/g, "-")}"></canvas>
             </div>
