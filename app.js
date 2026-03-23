@@ -162,7 +162,7 @@ function timeAgo(date) {
 
 // Fetch weather data for a single location from Open-Meteo (current + 7-day forecast in one call)
 async function fetchWeather(location) {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&daily=wind_gusts_10m_max,wind_speed_10m_max&wind_speed_unit=mph&timezone=Europe%2FLondon&forecast_days=6&models=ukmo_seamless`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&hourly=wind_speed_10m,wind_gusts_10m&daily=wind_gusts_10m_max,wind_speed_10m_max&wind_speed_unit=mph&timezone=Europe%2FLondon&forecast_days=6&models=ukmo_seamless`;
 
     const response = await fetch(url);
     if (!response.ok) {
@@ -177,6 +177,7 @@ async function fetchWeather(location) {
 
     const current = data.current;
     const daily = data.daily;
+    const hourly = data.hourly;
 
     const result = {
         windSpeed: Math.round(safeNumber(current.wind_speed_10m, 0)),
@@ -184,7 +185,8 @@ async function fetchWeather(location) {
         windDirection: safeNumber(current.wind_direction_10m, null),
         visibility: safeNumber(current.visibility, 0),
         time: current.time,
-        forecast: null
+        forecast: null,
+        hourlyForecast: null
     };
 
     // Only include forecast if daily data is valid
@@ -194,6 +196,22 @@ async function fetchWeather(location) {
             maxGusts: (daily.wind_gusts_10m_max || []).map(v => safeNumber(v, 0)),
             maxWindSpeed: (daily.wind_speed_10m_max || []).map(v => safeNumber(v, 0))
         };
+    }
+
+    // Include hourly forecast for the next 24 hours
+    if (hourly && Array.isArray(hourly.time) && hourly.time.length > 0) {
+        // Find the index of the current hour to start from
+        const currentTime = current.time; // e.g. "2024-01-15T14:00"
+        const currentHour = currentTime ? currentTime.slice(0, 13) : null; // "2024-01-15T14"
+        let startIndex = 0;
+        if (currentHour) {
+            const idx = hourly.time.findIndex(t => t.startsWith(currentHour));
+            if (idx >= 0) startIndex = idx;
+        }
+        const times = hourly.time.slice(startIndex, startIndex + 24);
+        const windSpeeds = (hourly.wind_speed_10m || []).slice(startIndex, startIndex + 24).map(v => safeNumber(v, 0));
+        const windGusts = (hourly.wind_gusts_10m || []).slice(startIndex, startIndex + 24).map(v => safeNumber(v, 0));
+        result.hourlyForecast = { times, windSpeeds, windGusts };
     }
 
     return result;
@@ -465,6 +483,150 @@ function renderForecastChart(location, forecast) {
     }
 }
 
+// Format hourly time label (e.g. "2024-01-15T14:00" → "14:00")
+function formatHourlyTime(timeStr) {
+    return timeStr ? timeStr.slice(11, 16) : "";
+}
+
+// Create or update the 24-hour hourly forecast chart
+function renderHourlyChart(location, hourlyForecast) {
+    const chartId = `hourly-chart-${location.name.replace(/\s+/g, "-")}`;
+    const canvas = document.getElementById(chartId);
+    if (!canvas) return;
+
+    if (!hourlyForecast || !hourlyForecast.times || hourlyForecast.times.length === 0) return;
+
+    const labels = hourlyForecast.times.map(formatHourlyTime);
+    const gustData = hourlyForecast.windGusts.map(v => Math.round(v));
+    const windData = hourlyForecast.windSpeeds.map(v => Math.round(v));
+    const gustColors = gustData.map(getBarColor);
+    const maxVal = Math.max(...gustData, ...windData);
+    const yMax = Math.max(50, Math.ceil((maxVal + 10) / 5) * 5);
+
+    const chartConfig = {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: "Gusts (mph)",
+                    data: gustData,
+                    backgroundColor: gustColors.map(c => c + "cc"),
+                    borderColor: gustColors,
+                    borderWidth: 1,
+                    borderRadius: 3,
+                    barPercentage: 0.6,
+                    order: 2
+                },
+                {
+                    label: "Wind Speed (mph)",
+                    data: windData,
+                    type: "line",
+                    borderColor: "#5dade2",
+                    backgroundColor: "rgba(93,173,226,0.1)",
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 3,
+                    tension: 0.3,
+                    fill: false,
+                    order: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { intersect: false, mode: "index" },
+            scales: {
+                x: {
+                    ticks: {
+                        color: "#8a9bb5",
+                        font: { size: 8 },
+                        maxRotation: 0,
+                        callback: function(val, index) {
+                            // Show every 3rd label to avoid crowding
+                            return index % 3 === 0 ? this.getLabelForValue(val) : "";
+                        }
+                    },
+                    grid: { color: "rgba(44,74,110,0.3)" }
+                },
+                y: {
+                    min: 0,
+                    max: yMax,
+                    ticks: { color: "#8a9bb5", font: { size: 9 }, stepSize: 10 },
+                    grid: { color: "rgba(44,74,110,0.3)" }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: "top",
+                    align: "end",
+                    labels: {
+                        color: "#8a9bb5",
+                        font: { size: 9 },
+                        boxWidth: 10,
+                        padding: 8
+                    }
+                },
+                tooltip: {
+                    backgroundColor: "#1a2a3a",
+                    titleColor: "#fff",
+                    bodyColor: "#e0e6ed",
+                    borderColor: "#2c4a6e",
+                    borderWidth: 1,
+                    callbacks: {
+                        label: function(ctx) {
+                            const val = ctx.parsed.y;
+                            if (ctx.dataset.label.startsWith("Gusts")) {
+                                const level = getWindAlertLevel(val);
+                                const suffix = level !== "green" ? ` - ${getAlertLabel(level)}` : "";
+                                return `Gusts: ${val} mph${suffix}`;
+                            }
+                            return `Wind Speed: ${val} mph`;
+                        }
+                    }
+                },
+                annotation: {
+                    annotations: {
+                        amber: {
+                            type: "line",
+                            yMin: THRESHOLDS.amber, yMax: THRESHOLDS.amber,
+                            borderColor: "#f39c12", borderWidth: 1, borderDash: [4, 3],
+                            label: { display: true, content: "30", position: "end", backgroundColor: "transparent", color: "#f39c12", font: { size: 8, weight: "bold" }, padding: 2 }
+                        },
+                        orange: {
+                            type: "line",
+                            yMin: THRESHOLDS.orange, yMax: THRESHOLDS.orange,
+                            borderColor: "#e67e22", borderWidth: 1, borderDash: [4, 3],
+                            label: { display: true, content: "35", position: "end", backgroundColor: "transparent", color: "#e67e22", font: { size: 8, weight: "bold" }, padding: 2 }
+                        },
+                        red: {
+                            type: "line",
+                            yMin: THRESHOLDS.red, yMax: THRESHOLDS.red,
+                            borderColor: "#e74c3c", borderWidth: 1, borderDash: [4, 3],
+                            label: { display: true, content: "40", position: "end", backgroundColor: "transparent", color: "#e74c3c", font: { size: 8, weight: "bold" }, padding: 2 }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    if (chartInstances[chartId]) {
+        const chart = chartInstances[chartId];
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = gustData;
+        chart.data.datasets[0].backgroundColor = gustColors.map(c => c + "cc");
+        chart.data.datasets[0].borderColor = gustColors;
+        chart.data.datasets[1].data = windData;
+        chart.options.scales.y.max = yMax;
+        chart.update("none");
+    } else {
+        chartInstances[chartId] = new Chart(canvas.getContext("2d"), chartConfig);
+    }
+}
+
 // Get card ID for a location
 function getCardId(location) {
     return `card-${location.name.replace(/\s+/g, "-")}`;
@@ -544,6 +706,12 @@ function buildCardContent(location, weather, isStale, staleTime) {
             <span class="visibility-label">${visDesc}</span>
         </div>
         <div class="forecast-section">
+            <div class="forecast-section-label">24-Hour Wind Forecast</div>
+            <div class="inline-chart-container hourly">
+                <canvas id="hourly-chart-${location.name.replace(/\s+/g, "-")}"></canvas>
+            </div>
+        </div>
+        <div class="forecast-section">
             <div class="forecast-section-label">6-Day Max Gusts</div>
             <div class="inline-chart-container">
                 <canvas id="chart-${location.name.replace(/\s+/g, "-")}"></canvas>
@@ -610,6 +778,12 @@ function createCardShell(location) {
             <span class="visibility-label">Loading...</span>
         </div>
         <div class="forecast-section">
+            <div class="forecast-section-label">24-Hour Wind Forecast</div>
+            <div class="inline-chart-container hourly">
+                <canvas id="hourly-chart-${location.name.replace(/\s+/g, "-")}"></canvas>
+            </div>
+        </div>
+        <div class="forecast-section">
             <div class="forecast-section-label">6-Day Max Gusts</div>
             <div class="inline-chart-container">
                 <canvas id="chart-${location.name.replace(/\s+/g, "-")}"></canvas>
@@ -624,11 +798,16 @@ function updateCard(location, weather, error, isStale, staleTime, onComplete) {
     const card = document.getElementById(getCardId(location));
     if (!card) return;
 
-    // Destroy existing chart before replacing innerHTML
+    // Destroy existing charts before replacing innerHTML
     const chartId = `chart-${location.name.replace(/\s+/g, "-")}`;
     if (chartInstances[chartId]) {
         chartInstances[chartId].destroy();
         delete chartInstances[chartId];
+    }
+    const hourlyChartId = `hourly-chart-${location.name.replace(/\s+/g, "-")}`;
+    if (chartInstances[hourlyChartId]) {
+        chartInstances[hourlyChartId].destroy();
+        delete chartInstances[hourlyChartId];
     }
 
     // Fade out
@@ -956,7 +1135,9 @@ async function loadAllWeather() {
                 fetchedAt: new Date()
             };
             const forecast = weather.forecast;
+            const hourlyForecast = weather.hourlyForecast;
             updateCard(location, weather, null, false, null, () => {
+                if (hourlyForecast) renderHourlyChart(location, hourlyForecast);
                 if (forecast) renderForecastChart(location, forecast);
             });
             allResults.push({ location, weather });
@@ -965,7 +1146,9 @@ async function loadAllWeather() {
             const cached = weatherCache[cacheKey];
             if (cached) {
                 const cachedForecast = cached.weather.forecast;
+                const cachedHourly = cached.weather.hourlyForecast;
                 updateCard(location, cached.weather, null, true, cached.fetchedAt, () => {
+                    if (cachedHourly) renderHourlyChart(location, cachedHourly);
                     if (cachedForecast) renderForecastChart(location, cachedForecast);
                 });
                 allResults.push({ location, weather: cached.weather });

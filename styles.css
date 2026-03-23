@@ -459,6 +459,10 @@ main {
     width: 100%;
 }
 
+.inline-chart-container.hourly {
+    height: 170px;
+}
+
 /* Weather Map */
 .weather-map {
     height: 420px;
