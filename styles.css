@@ -538,6 +538,20 @@ main {
 .map-popup-alert.orange { background: rgba(230,126,34,0.2); color: #e67e22; }
 .map-popup-alert.red { background: rgba(231,76,60,0.2); color: #e74c3c; }
 
+.map-popup-chart {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #2c4a6e;
+}
+
+.map-popup-chart-label {
+    font-size: 0.7rem;
+    color: #6b8299;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
 .map-label {
     background: rgba(26, 42, 58, 0.9);
     color: #e0e6ed;

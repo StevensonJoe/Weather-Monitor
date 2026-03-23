@@ -220,6 +220,8 @@ async function fetchWeather(location) {
 // ===== MAP =====
 let weatherMap = null;
 const mapMarkers = {};
+const mapPopupData = {}; // stores hourlyForecast per location name
+const mapPopupCharts = {}; // Chart.js instances for open popups
 
 // Color for alert level
 function getAlertColor(level) {
@@ -255,7 +257,7 @@ function initMap() {
             fillOpacity: 0.85
         }).addTo(weatherMap);
 
-        marker.bindPopup(`<div class="map-popup-title">${loc.name}</div><div style="color:#6b8299;">Loading...</div>`);
+        marker.bindPopup(`<div class="map-popup-title">${loc.name}</div><div style="color:#6b8299;">Loading...</div>`, { maxWidth: 280 });
         marker.bindTooltip(loc.name, {
             permanent: true,
             direction: "top",
@@ -265,6 +267,106 @@ function initMap() {
 
         mapMarkers[loc.name] = marker;
     }
+
+    // Render hourly chart once popup DOM is attached
+    weatherMap.on("popupopen", function(e) {
+        const canvas = e.popup.getElement().querySelector(".map-popup-chart canvas");
+        if (!canvas) return;
+        const locName = canvas.dataset.loc;
+        const hourlyForecast = mapPopupData[locName];
+        if (!hourlyForecast || !hourlyForecast.times || hourlyForecast.times.length === 0) return;
+
+        const times = hourlyForecast.times.slice(0, 12).map(formatHourlyTime);
+        const gustData = hourlyForecast.windGusts.slice(0, 12).map(v => Math.round(v));
+        const windData = hourlyForecast.windSpeeds.slice(0, 12).map(v => Math.round(v));
+        const gustColors = gustData.map(getBarColor);
+        const maxVal = Math.max(...gustData, ...windData);
+        const yMax = Math.max(50, Math.ceil((maxVal + 10) / 5) * 5);
+
+        if (mapPopupCharts[locName]) {
+            mapPopupCharts[locName].destroy();
+        }
+
+        mapPopupCharts[locName] = new Chart(canvas.getContext("2d"), {
+            type: "bar",
+            data: {
+                labels: times,
+                datasets: [
+                    {
+                        label: "Gusts",
+                        data: gustData,
+                        backgroundColor: gustColors.map(c => c + "cc"),
+                        borderColor: gustColors,
+                        borderWidth: 1,
+                        borderRadius: 2,
+                        barPercentage: 0.6,
+                        order: 2
+                    },
+                    {
+                        label: "Wind",
+                        data: windData,
+                        type: "line",
+                        borderColor: "#5dade2",
+                        backgroundColor: "transparent",
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.3,
+                        fill: false,
+                        order: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: false,
+                animation: false,
+                interaction: { intersect: false, mode: "index" },
+                scales: {
+                    x: {
+                        ticks: { color: "#8a9bb5", font: { size: 8 }, maxRotation: 0 },
+                        grid: { color: "rgba(44,74,110,0.3)" }
+                    },
+                    y: {
+                        min: 0,
+                        max: yMax,
+                        ticks: { color: "#8a9bb5", font: { size: 8 }, stepSize: 10 },
+                        grid: { color: "rgba(44,74,110,0.3)" }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: "top",
+                        align: "end",
+                        labels: { color: "#8a9bb5", font: { size: 8 }, boxWidth: 8, padding: 6 }
+                    },
+                    tooltip: {
+                        backgroundColor: "#1a2a3a",
+                        titleColor: "#fff",
+                        bodyColor: "#e0e6ed",
+                        borderColor: "#2c4a6e",
+                        borderWidth: 1,
+                        callbacks: {
+                            label: function(ctx) {
+                                return ctx.dataset.label === "Gusts"
+                                    ? `Gusts: ${ctx.parsed.y} mph`
+                                    : `Wind: ${ctx.parsed.y} mph`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    });
+
+    weatherMap.on("popupclose", function(e) {
+        const canvas = e.popup.getElement().querySelector(".map-popup-chart canvas");
+        if (!canvas) return;
+        const locName = canvas.dataset.loc;
+        if (mapPopupCharts[locName]) {
+            mapPopupCharts[locName].destroy();
+            delete mapPopupCharts[locName];
+        }
+    });
 }
 
 // Update map markers with current weather data
@@ -284,6 +386,11 @@ function updateMapMarkers(allResults) {
             radius: level === "green" ? 10 : 13
         });
 
+        // Store hourly forecast for popup chart
+        if (weather.hourlyForecast) {
+            mapPopupData[location.name] = weather.hourlyForecast;
+        }
+
         // Build popup content
         const typeClass = location.type === "port" ? "type-port" : "type-terminal";
         const typeLabel = location.type === "port" ? "Port" : "Terminal";
@@ -294,6 +401,11 @@ function updateMapMarkers(allResults) {
         if (level !== "green") {
             alertHtml = `<div class="map-popup-alert ${level}">${getAlertLabel(level)}</div>`;
         }
+
+        const safeLocName = location.name.replace(/"/g, "&quot;");
+        const hourlyChartHtml = weather.hourlyForecast
+            ? `<div class="map-popup-chart"><div class="map-popup-chart-label">12-Hour Forecast</div><canvas data-loc="${safeLocName}" width="252" height="90"></canvas></div>`
+            : "";
 
         const popupHtml = `
             <div class="map-popup-title">
@@ -313,9 +425,10 @@ function updateMapMarkers(allResults) {
                 <span class="map-popup-value">${visKm >= 1 ? visKm.toFixed(1) + " km" : Math.round(weather.visibility) + " m"} (${visDesc})</span>
             </div>
             ${alertHtml}
+            ${hourlyChartHtml}
         `;
 
-        marker.setPopupContent(popupHtml);
+        marker.setPopupContent(popupHtml, { maxWidth: 280 });
     }
 }
 
